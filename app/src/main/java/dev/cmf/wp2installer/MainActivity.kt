@@ -81,9 +81,14 @@ class MainActivity : Activity() {
             pkgBytes = bytes
             pkgHeader = header
             slotSpinner.setSelection(0)
+            slotSpinner.isEnabled = header.kind == Install.KIND_APP
             val kb = bytes.size / 1024
             pkgInfo.text = "${header.name}  ·  v${Install.versionText(header.version)}  ·  ${kb} KB  ·  ${Install.chunkCount(bytes.size)} chunks"
             status.text = "Package ready — choose a slot (Auto is best) and install"
+            if (header.kind != Install.KIND_APP) {
+                pkgInfo.append(" · App Loader → slot L")
+                status.text = "Package ready — the App Loader installs to slot L"
+            }
         } catch (e: Exception) {
             pkgBytes = null
             pkgHeader = null
@@ -283,10 +288,6 @@ class MainActivity : Activity() {
             status.text = "Choose a .wp2app file first"
             return
         }
-        if (header.kind != Install.KIND_APP) {
-            status.text = "Refused: this is a firmware/loader package, not an app"
-            return
-        }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null) {
             status.text = "Bluetooth is unavailable"
@@ -322,7 +323,7 @@ class MainActivity : Activity() {
 
                 status.text = "Reading installed slots…"
                 val used = HashMap<Int, String>()
-                for (s in 0 until Install.SLOTS) {
+                for (s in (0 until Install.SLOTS) + Install.LOADER_SLOT) {
                     val reply = link.call(Install.INFO, byteArrayOf(s.toByte())) ?: continue
                     if (reply.size > 1 && reply[0].toInt() == 0) {
                         used[s] = try {
@@ -332,16 +333,15 @@ class MainActivity : Activity() {
                         }
                     }
                 }
-                val slot = if (slotChoice == 0) {
-                    Install.chooseSlot(header.name, used) ?: error("No free slot — remove an app on the watch first")
-                } else {
-                    slotChoice - 1
-                }
+                val slot = Install.chooseInstallSlot(header, slotChoice.takeIf { it > 0 }?.minus(1), used)
                 val replaced = used[slot]
-                if (replaced != null && replaced != header.name) {
-                    status.text = "Replacing '$replaced' in slot $slot · starting upload…"
+                val where = if (slot == Install.LOADER_SLOT) "slot L" else "slot $slot"
+                if (slot == Install.LOADER_SLOT) {
+                    status.text = "Uploading the App Loader to $where · 0%"
+                } else if (replaced != null && replaced != header.name) {
+                    status.text = "Replacing '$replaced' in $where · starting upload…"
                 } else {
-                    status.text = "Uploading to slot $slot · 0%"
+                    status.text = "Uploading to $where · 0%"
                 }
 
                 val begin = link.call(
@@ -367,7 +367,7 @@ class MainActivity : Activity() {
                     val pct = offset * 100 / data.size
                     if (pct >= lastPct + 10 || offset == data.size) {
                         lastPct = pct
-                        status.text = "Uploading to slot $slot · $pct%"
+                        status.text = "Uploading to $where · $pct%"
                     }
                 }
 
@@ -380,9 +380,9 @@ class MainActivity : Activity() {
                 val installed = verify?.takeIf { it.size > 1 && it[0].toInt() == 0 }
                     ?.let { Install.parseHeader(it.copyOfRange(1, minOf(it.size, 1 + Install.HEADER_SIZE))).name }
                 status.text = if (installed == header.name) {
-                    "Installed ${header.name} v${Install.versionText(header.version)} → slot $slot ✓"
+                    "Installed " + header.name + " v" + Install.versionText(header.version) + " → " + where + " ✓"
                 } else {
-                    "Installed, but the watch reports slot $slot as ${installed ?: "empty"}"
+                    "Installed, but the watch reports " + where + " as " + (installed ?: "empty")
                 }
             } catch (e: CancellationException) {
                 throw e

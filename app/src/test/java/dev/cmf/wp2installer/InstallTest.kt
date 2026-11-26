@@ -96,7 +96,7 @@ class InstallTest {
     }
 
     @Test
-    fun loaderPackagesAreVisibleInTheHeaderSoTheUiCanRefuseThem() {
+    fun loaderPackagesAreVisibleInTheHeader() {
         assertEquals(Install.KIND_LOADER, Install.parseHeader(header(kind = 1)).kind)
         assertEquals(Install.KIND_APP, Install.parseHeader(header(kind = 0)).kind)
     }
@@ -106,8 +106,24 @@ class InstallTest {
         val used = mapOf(0 to "other", 1 to "ha-remote", 3 to "third", 255 to "loader")
         assertEquals(1, Install.chooseSlot("ha-remote", used))
         assertEquals(2, Install.chooseSlot("music", used))
-        val full = (0 until 8).associateWith { "slot$it" } + (255 to "loader")
+        val full = (0 until Install.SLOTS).associateWith { "slot$it" } + (255 to "loader")
         assertNull(Install.chooseSlot("new", full))
+    }
+
+    @Test
+    fun loaderPackagesAlwaysChooseSlotL() {
+        val used = mapOf(0 to "other", 255 to "loader")
+        val loader = Install.parseHeader(header(name = "loader", kind = 1))
+        assertEquals(Install.LOADER_SLOT, Install.chooseInstallSlot(loader, null, used))
+        assertEquals("the spinner never moves the loader", Install.LOADER_SLOT, Install.chooseInstallSlot(loader, 3, used))
+        val other = Install.parseHeader(header(name = "other"))
+        assertEquals(3, Install.chooseInstallSlot(other, 3, used))
+        assertEquals("same name wins over free", 0, Install.chooseInstallSlot(other, null, used))
+        val app = Install.parseHeader(header(name = "brandnew"))
+        assertEquals(1, Install.chooseInstallSlot(app, null, used))
+        val full = (0 until Install.SLOTS).associateWith { "slot$it" } + (255 to "loader")
+        assertTrue(runCatching { Install.chooseInstallSlot(app, null, full) }.exceptionOrNull() is Install.Bad)
+        assertEquals("stub 8 has 16 slots", 16, Install.SLOTS)
     }
 
     @Test

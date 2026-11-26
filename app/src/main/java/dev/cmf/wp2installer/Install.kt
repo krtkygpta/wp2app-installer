@@ -9,7 +9,10 @@ import java.util.zip.CRC32
  */
 object Install {
 
-    const val SLOTS = 8
+    /** Stub 8 installs into 16 slots; a stub before it answers INFO only for 0..7 (empty elsewhere). */
+    const val SLOTS = 16
+    /** install.py: a loader package always goes to slot L; apps never choose it. */
+    const val LOADER_SLOT = 0xFF
     const val STUB_SLOT = 0xFE
     const val INFO = 0x90A0
     const val BEGIN = 0x90A1
@@ -132,6 +135,21 @@ object Install {
             .minOfOrNull { it.key }
             ?.let { return it }
         return (0 until SLOTS).firstOrNull { it !in used }
+    }
+
+    /**
+     * Where one package installs, mirroring install.py: a loader package always goes to slot L
+     * (0xFF, whatever the spinner says), otherwise the forced slot wins, else same name in place,
+     * else the first free slot. The watch enforces the same kind/slot rules again at BEGIN.
+     */
+    fun chooseInstallSlot(header: Header, forced: Int?, used: Map<Int, String>): Int {
+        if (header.kind == KIND_LOADER) return LOADER_SLOT
+        forced?.let {
+            require(it in 0 until SLOTS) { "slot $it does not exist" }
+            return it
+        }
+        return chooseSlot(header.name, used)
+            ?: throw Bad("no free slot — remove an app on the watch first")
     }
 
     fun chunkCount(size: Int) = (size + MAX_DATA - 1) / MAX_DATA
